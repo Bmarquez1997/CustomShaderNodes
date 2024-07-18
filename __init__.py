@@ -1,12 +1,11 @@
-
 bl_info = {
-    "name": "ShaderNodesExtra",
-    "author": "Secrop",
-    "version": (0, 2, 0),
-    "blender": (2, 80, 0),
-    "location": "Node",
+    "name": "PyNode Utils",
+    "author": "Secrop, DeveloperChipmunk",
+    "version": (1, 0, 0),
+    "blender": (4, 0, 0),
+    "location": "Node Editor -> PyNode",
     "description": "Tools for NodeGroups",
-    "warning": "This is still is alpha testing. Although, the basic API is complete, please keep your original nodegroups as backup",
+    "warning": "This is still in alpha testing. Although, the basic API is complete, please keep your original node groups as backup",
     "wiki_url": "",
     "category": "Node",
     }
@@ -15,7 +14,7 @@ import bpy
 import os, sys, importlib
 import nodeitems_utils
 from nodeitems_utils import NodeCategory, NodeItem, NodeItemCustom
-from nodeitems_builtins import ShaderNodeCategory, SortedNodeCategory, cycles_shader_nodes_poll, node_tree_group_type, group_tools_draw, node_group_items
+from nodeitems_builtins import ShaderNodeCategory, SortedNodeCategory, node_tree_group_type, group_tools_draw, node_group_items
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import Nodes
 
@@ -104,6 +103,12 @@ def exportNodetree(nodetree, bl_name, bl_label):
                     result+=']'
         elif str(type(val))=="<class 'str'>":
             result+='\'' + val + '\''
+        elif str(type(val))=="<class 'Euler'>":
+            flt="{0:.3f}".format(*val)
+            flt.rstrip('0')
+            if flt.endswith('.'):
+                flt+='0'
+            result+=flt
         else:
             flt="{0:.3f}".format(val)
             flt.rstrip('0')
@@ -111,9 +116,18 @@ def exportNodetree(nodetree, bl_name, bl_label):
                 flt+='0'
             result+=flt
         return result
+    
+    def getSockets(node_tree, socket):
+        sockets = []
+        for item in node_tree.interface.items_tree:
+            if item.item_type == 'SOCKET':
+                if item.in_out == socket:
+                    sockets.append(item)
+        return sockets
 
     filepath=NodesPath() +'/' + bl_name + '.py'
     file=open(filepath, 'w')
+    file.write(filepath)
     file.write('import bpy\n')
     file.write('from ShaderNodeBase import ShaderNodeBase\n\n')
     file.write('class ' + bl_name + '(ShaderNodeBase):\n\n')
@@ -133,7 +147,7 @@ def exportNodetree(nodetree, bl_name, bl_label):
                 if i<len(attrs)-1:
                     file.write(', ')
             file.write('})\n')
-    for input in nodetree.inputs:
+    for input in getSockets(nodetree, 'INPUT'):
         file.write('        self.addInput(\'' + input.bl_socket_idname + '\', ')
         attrs=socketattrs(input)
         file.write('{')
@@ -143,7 +157,7 @@ def exportNodetree(nodetree, bl_name, bl_label):
             if i<len(attrs)-1:
                 file.write(', ')
         file.write('})\n')
-    for output in nodetree.outputs:
+    for output in getSockets(nodetree, 'OUTPUT'):
         file.write('        self.addOutput(\'' + output.bl_socket_idname + '\', ')
         attrs=socketattrs(output)
         file.write('{')
@@ -167,9 +181,10 @@ def exportNodetree(nodetree, bl_name, bl_label):
     register_node(bl_name)
     return {'FINISHED'}
 
+
 class NodeGroupConvert(bpy.types.Operator):
     """Tooltip"""
-    bl_idname = "node.convert_nodegroup"
+    bl_idname = "node.group_convert"
     bl_label = "Convert Selected NodeGroup to PyNode"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -188,13 +203,16 @@ class NodeGroupConvert(bpy.types.Operator):
     def execute(self, context):
         return exportNodetree(context.active_node.node_tree.id_data, self.nodename, self.nodelabel)
 
+
 class CyclesShaderNodeCategory(SortedNodeCategory):
     @classmethod
     def poll(cls, context):
         return context.space_data.tree_type == 'ShaderNodeTree' and context.engine == 'CYCLES'
 
+
 _eevee_polls=['eevee_shader_nodes_poll', 'eevee_cycles_shader_nodes_poll', 'object_eevee_shader_nodes_poll', 'object_eevee_cycles_shader_nodes_poll']    
-    
+
+
 def register_node(node):
     module=importlib.import_module('Nodes.' + node)
     nodeclass=getattr(module, node)
@@ -206,6 +224,7 @@ def register_node(node):
         catid, catname = menu_def_id, menu_def_name
     node_menu_include(catid, catname, nodeclass)
 
+
 def unregister_node(node):
     if hasattr(node, 'draw_menu'):
         catid, catname=node.draw_menu()
@@ -213,6 +232,7 @@ def unregister_node(node):
         catid, catname= menu_def_id, menu_def_name
     node_menu_exclude(catid, catname, node)
     bpy.utils.unregister_class(node)
+
 
 def register_nodes():
     for node in Nodes.listNodes():
@@ -303,8 +323,24 @@ def addCat(category, ident='SHADER', index=None):
         nodeitems_utils._node_categories[ident][0].append(category)
         nodeitems_utils._node_categories[ident][2].append(mt)
 
+
+class PyNodePanel(bpy.types.Panel):
+    bl_idname = "NODE_PT_py_node_panel"
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = "PyNode Utils"
+    bl_region_type = "UI"
+    bl_category = "PyNode"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Convert Node Groups to Custom Persistent Node Groups")
+        row = layout.row()
+        row.operator("node.group_convert", icon='NODE_SEL')
+
+
 def register():
     bpy.utils.register_class(NodeGroupConvert)
+    bpy.utils.register_class(PyNodePanel)
     register_nodes()
 
 def unregister():
